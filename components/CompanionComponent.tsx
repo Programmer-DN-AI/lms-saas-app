@@ -41,10 +41,35 @@ const CompanionComponent = ({ companionId, subject, topic, name, userName, userI
             addToSessionHistory(companionId)
         }
 
-        const onMessage = (message: Message) => {
-            if(message.type === 'transcript' && message.transcriptType === 'final') {
-                const newMessage= { role: message.role, content: message.transcript}
-                setMessages((prev) => [newMessage, ...prev])
+        const onMessage = (message: any) => {
+            // 1) Final speech-to-text transcripts (user or assistant)
+            if (message?.type === 'transcript' && (message?.transcriptType === 'final' || !message?.transcriptType)) {
+                const role = message?.role === 'agent' ? 'assistant' : message?.role;
+                const text = message?.transcript || message?.text || message?.content;
+                if (role && text) {
+                    const newMessage = { role, content: text } as SavedMessage;
+                    setMessages((prev) => [newMessage, ...prev]);
+                }
+                return;
+            }
+
+            // 2) Model messages (assistant responses)
+            if (message?.type === 'message') {
+                const role = message?.role === 'agent' ? 'assistant' : message?.role || 'assistant';
+                const text = message?.text || message?.message || message?.content;
+                if (text) {
+                    const newMessage = { role, content: text } as SavedMessage;
+                    setMessages((prev) => [newMessage, ...prev]);
+                }
+                return;
+            }
+
+            // 3) Fallback: if Vapi emits other shapes containing text
+            const role = message?.role === 'agent' ? 'assistant' : message?.role;
+            const text = message?.text || message?.message || message?.content;
+            if (role && text) {
+                const newMessage = { role, content: text } as SavedMessage;
+                setMessages((prev) => [newMessage, ...prev]);
             }
         }
 
@@ -53,24 +78,29 @@ const CompanionComponent = ({ companionId, subject, topic, name, userName, userI
 
         const onError = (error: Error) => console.log('Error', error);
 
-        vapi.on('call-start', onCallStart);
-        vapi.on('call-end', onCallEnd);
-        vapi.on('message', onMessage);
-        vapi.on('error', onError);
-        vapi.on('speech-start', onSpeechStart);
-        vapi.on('speech-end', onSpeechEnd);
+        if (vapi) {
+            vapi.on('call-start', onCallStart);
+            vapi.on('call-end', onCallEnd);
+            vapi.on('message', onMessage);
+            vapi.on('error', onError);
+            vapi.on('speech-start', onSpeechStart);
+            vapi.on('speech-end', onSpeechEnd);
+        }
 
         return () => {
-            vapi.off('call-start', onCallStart);
-            vapi.off('call-end', onCallEnd);
-            vapi.off('message', onMessage);
-            vapi.off('error', onError);
-            vapi.off('speech-start', onSpeechStart);
-            vapi.off('speech-end', onSpeechEnd);
+            if (vapi) {
+                vapi.off('call-start', onCallStart);
+                vapi.off('call-end', onCallEnd);
+                vapi.off('message', onMessage);
+                vapi.off('error', onError);
+                vapi.off('speech-start', onSpeechStart);
+                vapi.off('speech-end', onSpeechEnd);
+            }
         }
     }, []);
 
     const toggleMicrophone = () => {
+        if (!vapi) return;
         const isMuted = vapi.isMuted();
         vapi.setMuted(!isMuted);
         setIsMuted(!isMuted)
@@ -91,6 +121,7 @@ const CompanionComponent = ({ companionId, subject, topic, name, userName, userI
 
     const handleDisconnect = () => {
         setCallStatus(CallStatus.FINISHED)
+        if (!vapi) return;
         vapi.stop()
     }
 
@@ -102,7 +133,7 @@ const CompanionComponent = ({ companionId, subject, topic, name, userName, userI
                         <div
                             className={
                             cn(
-                                'absolute transition-opacity duration-1000', callStatus === CallStatus.FINISHED || callStatus === CallStatus.INACTIVE ? 'opacity-1001' : 'opacity-0', callStatus === CallStatus.CONNECTING && 'opacity-100 animate-pulse'
+                                'absolute transition-opacity duration-1000', callStatus === CallStatus.FINISHED || callStatus === CallStatus.INACTIVE ? 'opacity-100' : 'opacity-0', callStatus === CallStatus.CONNECTING && 'opacity-100 animate-pulse'
                             )
                         }>
                             <Image src={`/icons/${subject}.svg`} alt={subject} width={150} height={150} className="max-sm:w-fit" />
@@ -150,11 +181,7 @@ const CompanionComponent = ({ companionId, subject, topic, name, userName, userI
                         if(message.role === 'assistant') {
                             return (
                                 <p key={index} className="max-sm:text-sm">
-                                    {
-                                        name
-                                            .split(' ')[0]
-                                            .replace('/[.,]/g, ','')
-                                    }: {message.content}
+                                    {name.split(' ')[0].replace(/[.,]/g, '')}: {message.content}
                                 </p>
                             )
                         } else {
