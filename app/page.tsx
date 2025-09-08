@@ -4,20 +4,26 @@ import CTA from "@/components/CTA";
 import {recentSessions} from "@/constants";
 import {getAllCompanions, getRecentSessions} from "@/lib/actions/companion.actions";
 import {getSubjectColor} from "@/lib/utils";
+import { auth } from "@clerk/nextjs/server";
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
 const Page = async () => {
-    const companions = await getAllCompanions({ limit: 3 });
-    const recentSessionsCompanions = await getRecentSessions(10);
+    const { userId } = await auth();
+    // If signed out, skip DB and show seeded content immediately
+    const companions = userId ? await getAllCompanions({ limit: 3 }) : [];
+    const recentSessionsCompanions = userId ? await getRecentSessions(10) : recentSessions.map((s) => ({ ...s, bookmarked: false }));
+
+  // Always show a populated list for Popular Companions (visible when signed out too)
+  const popular = recentSessions.map((s) => ({ ...s, bookmarked: false }));
 
   return (
     <main>
       <h1>Popular Companions</h1>
 
         <section className="home-section">
-            {companions.map((companion) => (
+            {popular.map((companion) => (
                 <CompanionCard
                     key={companion.id}
                     {...companion}
